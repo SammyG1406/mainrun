@@ -4,8 +4,7 @@
 		"dockerfile": "Dockerfile",
 		"context": "."
 	},
-	"hostRequirements": {
-		"gpu": "optional"
-	},
+	"hostRequirements": 
+		{ "gpu": false },
 	"remoteUser": "root"
 }

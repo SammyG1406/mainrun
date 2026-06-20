@@ -217,6 +217,9 @@ class GPT(nn.Module):
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), reduction='mean')
         return logits, loss
 
+
+import os
+torch.set_num_threads(os.cpu_count())
 def main():
     args = Hyperparameters()
     torch.manual_seed(args.seed)
