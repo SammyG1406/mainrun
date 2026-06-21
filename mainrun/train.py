@@ -296,6 +296,7 @@ def main():
     logger.log("model_info", parameters_count=model_params)
     
     opt = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=0.1)
+    
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max_steps)
 
     def evaluate():
