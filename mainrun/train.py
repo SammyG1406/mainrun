@@ -1,5 +1,5 @@
 import utils
-import math, random, time
+import math, random, time, os
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -11,6 +11,24 @@ from datasets import load_dataset
 from tokenizers import Tokenizer, models, trainers, pre_tokenizers, decoders
 from tqdm import tqdm
 import structlog
+
+# ---------------------------------------------------------------------------
+# Three-tier testing harness.
+#
+# Controlled entirely via the MODE env var. This ONLY affects how much data
+# is used for fast local iteration — it never changes epochs, seed, val_frac,
+# or anything else restricted by the assessment rules when MODE=full (the
+# default), which is exactly what `task train` runs for real/scored results.
+#
+#   MODE=smoke    -> ~500 titles,  1 epoch   (seconds)  "does it crash?"
+#   MODE=validate -> ~25k titles,  7 epochs  (minutes)  "is this idea promising?"
+#   MODE=full     -> 100k titles,  7 epochs  (the real run, default, unchanged)
+# ---------------------------------------------------------------------------
+MODE = os.environ.get("MODE", "full").lower()
+assert MODE in ("smoke", "validate", "full"), f"Unknown MODE: {MODE}"
+
+_MODE_NUM_TITLES = {"smoke": 500, "validate": 25_000, "full": 100_000}
+_MODE_EPOCHS = {"smoke": 1, "validate": 7, "full": 7}
 
 @dataclass
 class Hyperparameters:
@@ -25,11 +43,11 @@ class Hyperparameters:
     weight_decay: float = 0.0
     evals_per_epoch: int = 3
     
-    epochs: int = 7
+    epochs: int = _MODE_EPOCHS[MODE]
     seed: int = 1337
-    num_titles: int = 100_000
+    num_titles: int = _MODE_NUM_TITLES[MODE]
     val_frac: float = 0.10
-    log_file: str = "./logs/mainrun.log"
+    log_file: str = f"./logs/mainrun_{MODE}.log" if MODE != "full" else "./logs/mainrun.log"
 
 def configure_logging(log_file: str):
     Path(log_file).parent.mkdir(parents=True, exist_ok=True)
@@ -217,27 +235,39 @@ class GPT(nn.Module):
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), reduction='mean')
         return logits, loss
 
-
-import os
-torch.set_num_threads(os.cpu_count())
 def main():
     args = Hyperparameters()
     torch.manual_seed(args.seed)
     random.seed(args.seed)
-    
+    torch.set_num_threads(os.cpu_count())
+
     global logger
     logger = configure_logging(args.log_file)
-    
+
     hyperparams_dict = vars(args)
-    logger.log("hyperparameters_configured", **hyperparams_dict)
-    
+    logger.log("hyperparameters_configured", mode=MODE, **hyperparams_dict)
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logger.log("device_info", device=device)
 
     train_titles, val_titles = get_titles(args.num_titles, args.seed, args.val_frac)
-    
+
     eos_token = "<eos>"
-    tok = BPETokenizer(train_tokenizer(train_titles+val_titles, args.vocab_size, eos_token=eos_token))
+
+    # Cache the tokenizer per-tier (vocab depends on num_titles, so MODE=smoke,
+    # validate, and full each get their own cached tokenizer file, and the real
+    # MODE=full run is always retrained fresh against the full 100k titles).
+    tok_cache_path = Path(f"./data/tokenizer_{MODE}.json")
+    if tok_cache_path.exists():
+        tok = BPETokenizer(Tokenizer.from_file(str(tok_cache_path)))
+        logger.log("tokenizer_loaded_from_cache", path=str(tok_cache_path))
+    else:
+        raw_tok = train_tokenizer(train_titles + val_titles, args.vocab_size, eos_token=eos_token)
+        tok_cache_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_tok.save(str(tok_cache_path))
+        tok = BPETokenizer(raw_tok)
+        logger.log("tokenizer_trained_and_cached", path=str(tok_cache_path))
+
     train_text = eos_token.join(train_titles) + eos_token
     val_text = eos_token.join(val_titles) + eos_token
     train_ids = torch.tensor(tok.encode(train_text), dtype=torch.long)
