@@ -27,7 +27,7 @@ import structlog
 MODE = os.environ.get("MODE", "full").lower()
 assert MODE in ("smoke", "validate", "full"), f"Unknown MODE: {MODE}"
 
-_MODE_NUM_TITLES = {"smoke": 500, "validate": 25_000, "full": 100_000}
+_MODE_NUM_TITLES = {"smoke": 5_000, "validate": 25_000, "full": 100_000}
 _MODE_EPOCHS = {"smoke": 1, "validate": 7, "full": 7}
 
 @dataclass
