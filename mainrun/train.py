@@ -296,10 +296,21 @@ def main():
     model = GPT(cfg).to(device)
     model_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.log("model_info", parameters_count=model_params)
-    
-    opt = torch.optim.SGD(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max_steps)
+    opt = torch.optim.SGD(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    
+
+
+    warmup_steps = max(100, int(0.05 * max_steps))
+    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+        opt, start_factor=1e-8, end_factor=1.0, total_iters=warmup_steps
+    )
+    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        opt, T_max=max_steps - warmup_steps, eta_min=args.lr * 0.05
+    )
+    scheduler = torch.optim.lr_scheduler.SequentialLR(
+        opt, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[warmup_steps]
+    )
 
     def evaluate():
         model.eval()
