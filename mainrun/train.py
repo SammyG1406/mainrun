@@ -46,7 +46,10 @@ class Hyperparameters:
     seed: int = 1337
     num_titles: int = _MODE_NUM_TITLES[MODE]
     val_frac: float = 0.10
-    log_file: str = f"./logs/mainrun_{MODE}.log" if MODE != "full" else "./logs/mainrun.log"
+    log_file: str = (
+        f"./logs/mainrun_{MODE}_{time.strftime('%Y-%m-%dT%H-%M-%S')}.log"
+        if MODE != "full" else "./logs/mainrun.log"
+    )
 
 def configure_logging(log_file: str):
     Path(log_file).parent.mkdir(parents=True, exist_ok=True)
