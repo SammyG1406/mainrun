@@ -31,7 +31,7 @@ _MODE_EPOCHS = {"smoke": 1, "validate": 7, "full": 7}
 
 @dataclass
 class Hyperparameters:
-    block_size: int = 64
+    block_size: int = 128
     batch_size: int = 64
     vocab_size: int = 16_000
     n_layer: int = 6
