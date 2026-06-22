@@ -19,8 +19,7 @@ import structlog
 # is used for fast local iteration — it never changes epochs, seed, val_frac,
 # or anything else restricted by the assessment rules when MODE=full (the
 # default), which is exactly what `task train` runs for real/scored results.
-#
-#   MODE=smoke    -> ~500 titles,  1 epoch   (seconds)  "does it crash?"
+#   MODE=smoke    -> ~5000 titles,  1 epoch   (seconds)  "does it crash?"
 #   MODE=validate -> ~25k titles,  7 epochs  (minutes)  "is this idea promising?"
 #   MODE=full     -> 100k titles,  7 epochs  (the real run, default, unchanged)
 # ---------------------------------------------------------------------------
@@ -295,8 +294,8 @@ def main():
     model_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.log("model_info", parameters_count=model_params)
     
-    opt = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=0.1)
-    
+    opt = torch.optim.SGD(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max_steps)
 
     def evaluate():
