@@ -1,0 +1,6 @@
+# sets pytorch threads to CPU Count
+export OMP_NUM_THREADS=14
+export MKL_NUM_THREADS=14 
+
+# command to check how many cores pytorch is using
+python3 -c "import torch, os; print('PyTorch threads:', torch.get_num_threads()); print('OS CPUs:', os.cpu_count())"

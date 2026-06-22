@@ -31,7 +31,7 @@ _MODE_EPOCHS = {"smoke": 1, "validate": 7, "full": 7}
 
 @dataclass
 class Hyperparameters:
-    block_size: int = 128
+    block_size: int = 64
     batch_size: int = 64
     vocab_size: int = 16_000
     n_layer: int = 6
@@ -214,6 +214,9 @@ class GPT(nn.Module):
         self.head      = nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
 
         self.apply(self._init_weights)
+        for pn, p in self.named_parameters():
+            if pn.endswith('proj.weight') or pn.endswith('net.2.weight'):
+                nn.init.normal_(p, mean=0.0, std=0.02 / math.sqrt(2 * cfg.n_layer))
         self.head.weight = self.token_emb.weight
 
     @staticmethod
@@ -296,10 +299,8 @@ def main():
     model = GPT(cfg).to(device)
     model_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.log("model_info", parameters_count=model_params)
-
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     
-
+    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
     warmup_steps = max(100, int(0.05 * max_steps))
     warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
