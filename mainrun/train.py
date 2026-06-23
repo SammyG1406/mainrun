@@ -37,8 +37,8 @@ class Hyperparameters:
     n_layer: int = 8
     n_head: int = 12
     d_model: int = 768
-    dropout: float = 0.1
-    lr: float = 3e-4
+    dropout: float = 0.05
+    lr: float = 4e-4
     weight_decay: float = 0.1
     evals_per_epoch: int = 3
     
@@ -161,21 +161,16 @@ class CausalSelfAttention(nn.Module):
         assert cfg.d_model % cfg.n_head == 0
         self.head_dim = cfg.d_model // cfg.n_head
         self.n_head   = cfg.n_head
+        self.drop_p   = cfg.dropout
         self.qkv = nn.Linear(cfg.d_model, 3 * cfg.d_model)
         self.proj = nn.Linear(cfg.d_model, cfg.d_model)
-        self.attn_drop = nn.Dropout(cfg.dropout)
-        self.resid_drop= nn.Dropout(cfg.dropout)
-        self.register_buffer("tril", torch.tril(torch.ones(cfg.block_size, cfg.block_size)))
+        self.resid_drop = nn.Dropout(cfg.dropout)
 
     def forward(self, x: torch.Tensor):
         B, T, C = x.size()
         qkv = self.qkv(x).view(B, T, 3, self.n_head, self.head_dim).transpose(1, 3)
         q, k, v = qkv[..., 0, :, :], qkv[..., 1, :, :], qkv[..., 2, :, :]
-        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        att = att.masked_fill(self.tril[:T, :T] == 0, float("-inf"))
-        att = F.softmax(att, dim=-1)
-        att = self.attn_drop(att)
-        y = att @ v
+        y = F.scaled_dot_product_attention(q, k, v, dropout_p=self.drop_p if self.training else 0.0, is_causal=True)
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         return self.resid_drop(self.proj(y))
 
@@ -244,6 +239,7 @@ def main():
     args = Hyperparameters()
     torch.manual_seed(args.seed)
     random.seed(args.seed)
+    torch.set_num_interop_threads(1)
     torch.set_num_threads(os.cpu_count())
 
     global logger
@@ -299,10 +295,11 @@ def main():
     model = GPT(cfg).to(device)
     model_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.log("model_info", parameters_count=model_params)
-    
+    model = torch.compile(model)
+
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
-    warmup_steps = max(100, int(0.05 * max_steps))
+    warmup_steps = int(0.05 * max_steps)
     warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
         opt, start_factor=1e-8, end_factor=1.0, total_iters=warmup_steps
     )
