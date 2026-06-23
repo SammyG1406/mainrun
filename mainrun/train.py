@@ -303,7 +303,7 @@ def main():
     
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
-    warmup_steps = max(100, int(0.05 * max_steps))
+    warmup_steps = int(0.05 * max_steps)
     warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
         opt, start_factor=1e-8, end_factor=1.0, total_iters=warmup_steps
     )
