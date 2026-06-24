@@ -297,7 +297,7 @@ def main():
     logger.log("model_info", parameters_count=model_params)
     model = torch.compile(model)
 
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, betas=(0.9, 0.95))
 
     warmup_steps = max(100, int(0.05 * max_steps))
     warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
