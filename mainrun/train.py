@@ -177,14 +177,13 @@ class CausalSelfAttention(nn.Module):
 class MLP(nn.Module):
     def __init__(self, cfg: GPTConfig):
         super().__init__()
-        hidden = int(4 * cfg.d_model * 2 / 3)  # 8d/3 keeps param count equal to 4d GELU MLP
-        self.gate = nn.Linear(cfg.d_model, hidden)
-        self.up   = nn.Linear(cfg.d_model, hidden)
-        self.down = nn.Linear(hidden, cfg.d_model)
-        self.drop = nn.Dropout(cfg.dropout)
-
-    def forward(self, x):
-        return self.drop(self.down(F.gelu(self.gate(x)) * self.up(x)))
+        self.net = nn.Sequential(
+            nn.Linear(cfg.d_model, 4 * cfg.d_model),
+            nn.GELU(),
+            nn.Linear(4 * cfg.d_model, cfg.d_model),
+            nn.Dropout(cfg.dropout),
+        )
+    def forward(self, x): return self.net(x)
 
 class Block(nn.Module):
     def __init__(self, cfg: GPTConfig):
@@ -211,7 +210,7 @@ class GPT(nn.Module):
 
         self.apply(self._init_weights)
         for pn, p in self.named_parameters():
-            if pn.endswith('proj.weight') or pn.endswith('down.weight'):
+            if pn.endswith('proj.weight') or pn.endswith('net.2.weight'):
                 nn.init.normal_(p, mean=0.0, std=0.02 / math.sqrt(2 * cfg.n_layer))
         self.head.weight = self.token_emb.weight
 
