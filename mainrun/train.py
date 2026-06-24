@@ -166,10 +166,25 @@ class CausalSelfAttention(nn.Module):
         self.proj = nn.Linear(cfg.d_model, cfg.d_model)
         self.resid_drop = nn.Dropout(cfg.dropout)
 
+        half = self.head_dim // 2
+        freqs = 1.0 / (10000.0 ** (torch.arange(0, half).float() / half))
+        pos = torch.arange(cfg.block_size)
+        freqs = torch.outer(pos, freqs)
+        self.register_buffer('rope_cos', freqs.cos().unsqueeze(0).unsqueeze(0))
+        self.register_buffer('rope_sin', freqs.sin().unsqueeze(0).unsqueeze(0))
+
+    def _apply_rope(self, x, T):
+        cos = self.rope_cos[:, :, :T, :]
+        sin = self.rope_sin[:, :, :T, :]
+        x_e, x_o = x[..., ::2], x[..., 1::2]
+        return torch.stack([x_e * cos - x_o * sin,
+                            x_e * sin + x_o * cos], dim=-1).flatten(-2)
+
     def forward(self, x: torch.Tensor):
         B, T, C = x.size()
         qkv = self.qkv(x).view(B, T, 3, self.n_head, self.head_dim).transpose(1, 3)
         q, k, v = qkv[..., 0, :, :], qkv[..., 1, :, :], qkv[..., 2, :, :]
+        q, k = self._apply_rope(q, T), self._apply_rope(k, T)
         y = F.scaled_dot_product_attention(q, k, v, dropout_p=self.drop_p if self.training else 0.0, is_causal=True)
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         return self.resid_drop(self.proj(y))
@@ -202,7 +217,6 @@ class GPT(nn.Module):
         super().__init__()
         self.cfg = cfg
         self.token_emb = nn.Embedding(cfg.vocab_size, cfg.d_model)
-        self.pos_emb   = nn.Parameter(torch.zeros(1, cfg.block_size, cfg.d_model))
         self.drop      = nn.Dropout(cfg.dropout)
         self.blocks    = nn.ModuleList([Block(cfg) for _ in range(cfg.n_layer)])
         self.ln_f      = nn.LayerNorm(cfg.d_model)
@@ -224,8 +238,7 @@ class GPT(nn.Module):
     def forward(self, idx: torch.Tensor, targets: torch.Tensor | None = None):
         B, T = idx.size()
         tok = self.token_emb(idx)
-        pos = self.pos_emb[:, :T, :]
-        x = self.drop(tok + pos)
+        x = self.drop(tok)
         for block in self.blocks: x = block(x)
         x = self.ln_f(x)
         logits = self.head(x)
@@ -309,7 +322,7 @@ def main():
         opt, start_factor=1e-8, end_factor=1.0, total_iters=warmup_steps
     )
     cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        opt, T_max=max_steps - warmup_steps, eta_min=0.0
+        opt, T_max=max_steps - warmup_steps, eta_min=args.lr * 0.05
     )
     scheduler = torch.optim.lr_scheduler.SequentialLR(
         opt, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[warmup_steps]
