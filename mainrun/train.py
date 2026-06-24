@@ -177,13 +177,14 @@ class CausalSelfAttention(nn.Module):
 class MLP(nn.Module):
     def __init__(self, cfg: GPTConfig):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(cfg.d_model, 4 * cfg.d_model),
-            nn.GELU(),
-            nn.Linear(4 * cfg.d_model, cfg.d_model),
-            nn.Dropout(cfg.dropout),
-        )
-    def forward(self, x): return self.net(x)
+        hidden_dim = int(8 * cfg.d_model / 3)
+        self.gate = nn.Linear(cfg.d_model, hidden_dim, bias=False)
+        self.up   = nn.Linear(cfg.d_model, hidden_dim, bias=False)
+        self.down = nn.Linear(hidden_dim, cfg.d_model, bias=False)
+        self.drop = nn.Dropout(cfg.dropout)
+
+    def forward(self, x):
+        return self.drop(self.down(F.silu(self.gate(x)) * self.up(x)))
 
 class Block(nn.Module):
     def __init__(self, cfg: GPTConfig):
@@ -210,7 +211,7 @@ class GPT(nn.Module):
 
         self.apply(self._init_weights)
         for pn, p in self.named_parameters():
-            if pn.endswith('proj.weight') or pn.endswith('net.2.weight'):
+            if pn.endswith('proj.weight') or pn.endswith('down.weight'):
                 nn.init.normal_(p, mean=0.0, std=0.02 / math.sqrt(2 * cfg.n_layer))
         self.head.weight = self.token_emb.weight
 
@@ -297,14 +298,14 @@ def main():
     logger.log("model_info", parameters_count=model_params)
     model = torch.compile(model)
 
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, betas=(0.9, 0.95))
 
     warmup_steps = int(0.05 * max_steps)
     warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
         opt, start_factor=1e-8, end_factor=1.0, total_iters=warmup_steps
     )
     cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        opt, T_max=max_steps - warmup_steps, eta_min=args.lr * 0.05
+        opt, T_max=max_steps - warmup_steps, eta_min=args.lr * 0.01
     )
     scheduler = torch.optim.lr_scheduler.SequentialLR(
         opt, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[warmup_steps]
