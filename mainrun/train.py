@@ -34,9 +34,9 @@ class Hyperparameters:
     block_size: int = 128
     batch_size: int = 64
     vocab_size: int = 16_000
-    n_layer: int = 8
-    n_head: int = 12
-    d_model: int = 768
+    n_layer: int = 6
+    n_head: int = 8
+    d_model: int = 512
     dropout: float = 0.1
     lr: float = 3e-4
     weight_decay: float = 0.1
@@ -177,14 +177,13 @@ class CausalSelfAttention(nn.Module):
 class MLP(nn.Module):
     def __init__(self, cfg: GPTConfig):
         super().__init__()
-        hidden_dim = int(8 * cfg.d_model / 3)
-        self.gate = nn.Linear(cfg.d_model, hidden_dim, bias=False)
-        self.up   = nn.Linear(cfg.d_model, hidden_dim, bias=False)
-        self.down = nn.Linear(hidden_dim, cfg.d_model, bias=False)
-        self.drop = nn.Dropout(cfg.dropout)
-
-    def forward(self, x):
-        return self.drop(self.down(F.silu(self.gate(x)) * self.up(x)))
+        self.net = nn.Sequential(
+            nn.Linear(cfg.d_model, 4 * cfg.d_model),
+            nn.GELU(),
+            nn.Linear(4 * cfg.d_model, cfg.d_model),
+            nn.Dropout(cfg.dropout),
+        )
+    def forward(self, x): return self.net(x)
 
 class Block(nn.Module):
     def __init__(self, cfg: GPTConfig):
@@ -211,7 +210,7 @@ class GPT(nn.Module):
 
         self.apply(self._init_weights)
         for pn, p in self.named_parameters():
-            if pn.endswith('proj.weight') or pn.endswith('down.weight'):
+            if pn.endswith('proj.weight') or pn.endswith('net.2.weight'):
                 nn.init.normal_(p, mean=0.0, std=0.02 / math.sqrt(2 * cfg.n_layer))
         self.head.weight = self.token_emb.weight
 
@@ -298,7 +297,7 @@ def main():
     logger.log("model_info", parameters_count=model_params)
     model = torch.compile(model)
 
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, betas=(0.9, 0.95))
+    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
     warmup_steps = int(0.05 * max_steps)
     warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
