@@ -325,7 +325,7 @@ def main():
         {"params": no_decay_params, "weight_decay": 0.0},
     ], lr=args.lr)
 
-    warmup_steps = max(1, int(0.05 * max_steps))
+    warmup_steps = max(100, int(0.05 * max_steps))
     warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
         opt, start_factor=1e-8, end_factor=1.0, total_iters=warmup_steps
     )
