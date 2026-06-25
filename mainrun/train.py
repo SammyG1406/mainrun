@@ -34,7 +34,7 @@ class Hyperparameters:
     block_size: int = 256
     batch_size: int = 32
     vocab_size: int = 16_000
-    n_layer: int = 10
+    n_layer: int = 12
     n_head: int = 8
     d_model: int = 640
     dropout: float = 0.1
@@ -325,7 +325,7 @@ def main():
         {"params": no_decay_params, "weight_decay": 0.0},
     ], lr=args.lr)
 
-    warmup_steps = max(100, int(0.05 * max_steps))
+    warmup_steps = max(1, int(0.05 * max_steps))
     warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
         opt, start_factor=1e-8, end_factor=1.0, total_iters=warmup_steps
     )
