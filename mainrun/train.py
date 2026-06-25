@@ -256,6 +256,42 @@ class GPT(nn.Module):
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), reduction='mean')
         return logits, loss
 
+def zeropower_via_newtonschulz5(G, steps=5, eps=1e-7):
+    assert G.ndim == 2
+    a, b, c = (3.4445, -4.7750, 2.0315)
+    X = G / (G.norm() + eps)
+    if G.shape[0] > G.shape[1]:
+        X = X.T
+    for _ in range(steps):
+        A = X @ X.T
+        B = A @ X
+        X = a * X + b * B + c * A @ B
+    if G.shape[0] > G.shape[1]:
+        X = X.T
+    return X
+
+class Muon(torch.optim.Optimizer):
+    def __init__(self, params, lr=0.005, momentum=0.95, nesterov=True, ns_steps=5):
+        defaults = dict(lr=lr, momentum=momentum, nesterov=nesterov, ns_steps=ns_steps)
+        super().__init__(params, defaults)
+
+    def step(self):
+        for group in self.param_groups:
+            lr, momentum, nesterov, ns_steps = group['lr'], group['momentum'], group['nesterov'], group['ns_steps']
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                g = p.grad.float()
+                state = self.state[p]
+                if 'momentum_buffer' not in state:
+                    state['momentum_buffer'] = torch.zeros_like(g)
+                buf = state['momentum_buffer']
+                buf.mul_(momentum).add_(g)
+                g = g.add(buf, alpha=momentum) if nesterov else buf
+                g = zeropower_via_newtonschulz5(g, steps=ns_steps)
+                g *= max(g.shape) ** 0.5
+                p.data.add_(g.to(p.dtype), alpha=-lr)
+
 def main():
     args = Hyperparameters()
     torch.manual_seed(args.seed)
@@ -316,25 +352,35 @@ def main():
     model = GPT(cfg).to(device)
     model_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.log("model_info", parameters_count=model_params)
+
+    muon_params, adamw_decay_params, adamw_nodecay_params = [], [], []
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        if param.ndim >= 2 and 'token_emb' not in name:
+            muon_params.append(param)
+        elif param.ndim >= 2:
+            adamw_decay_params.append(param)
+        else:
+            adamw_nodecay_params.append(param)
+
     model = torch.compile(model)
 
-    decay_params    = [p for n, p in model.named_parameters() if p.requires_grad and p.dim() >= 2]
-    no_decay_params = [p for n, p in model.named_parameters() if p.requires_grad and p.dim() < 2]
-    opt = torch.optim.AdamW([
-        {"params": decay_params,    "weight_decay": args.weight_decay},
-        {"params": no_decay_params, "weight_decay": 0.0},
+    muon_opt  = Muon(muon_params, lr=0.005, momentum=0.95)
+    adamw_opt = torch.optim.AdamW([
+        {"params": adamw_decay_params,   "weight_decay": args.weight_decay},
+        {"params": adamw_nodecay_params, "weight_decay": 0.0},
     ], lr=args.lr)
 
-    warmup_steps = max(100, int(0.05 * max_steps))
-    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
-        opt, start_factor=1e-8, end_factor=1.0, total_iters=warmup_steps
-    )
-    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        opt, T_max=max_steps - warmup_steps, eta_min=args.lr * 0.05
-    )
-    scheduler = torch.optim.lr_scheduler.SequentialLR(
-        opt, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[warmup_steps]
-    )
+    warmup_steps = max(1, int(0.05 * max_steps))
+
+    def make_scheduler(opt, base_lr):
+        warmup = torch.optim.lr_scheduler.LinearLR(opt, start_factor=1e-8, end_factor=1.0, total_iters=warmup_steps)
+        cosine = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max_steps - warmup_steps, eta_min=base_lr * 0.05)
+        return torch.optim.lr_scheduler.SequentialLR(opt, schedulers=[warmup, cosine], milestones=[warmup_steps])
+
+    muon_sched  = make_scheduler(muon_opt,  0.005)
+    adamw_sched = make_scheduler(adamw_opt, args.lr)
 
     def evaluate():
         model.eval()
@@ -356,11 +402,14 @@ def main():
             step += 1
             xb, yb, ptr = get_batch(train_ids, ptr, args.block_size, args.batch_size, device)
             _, loss = model(xb, yb)
-            opt.zero_grad(set_to_none=True)
+            muon_opt.zero_grad(set_to_none=True)
+            adamw_opt.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            opt.step()
-            scheduler.step()
+            muon_opt.step()
+            adamw_opt.step()
+            muon_sched.step()
+            adamw_sched.step()
 
             elapsed = time.time() - t0
             logger.log("training_step",
