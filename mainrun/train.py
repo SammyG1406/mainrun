@@ -322,7 +322,7 @@ def main():
         opt, start_factor=1e-8, end_factor=1.0, total_iters=warmup_steps
     )
     cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        opt, T_max=max_steps - warmup_steps, eta_min=args.lr * 0.05
+        opt, T_max=max_steps - warmup_steps, eta_min=0.0
     )
     scheduler = torch.optim.lr_scheduler.SequentialLR(
         opt, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[warmup_steps]
