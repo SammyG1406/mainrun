@@ -146,6 +146,14 @@ class BPETokenizer:
     @property
     def vocab_size(self): return self.tk.get_vocab_size()
 
+class RMSNorm(nn.Module):
+    def __init__(self, dim, eps=1e-8):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+    def forward(self, x):
+        return x / x.pow(2).mean(-1, keepdim=True).add(self.eps).sqrt() * self.weight
+
 @dataclass
 class GPTConfig:
     vocab_size: int
@@ -203,8 +211,8 @@ class MLP(nn.Module):
 class Block(nn.Module):
     def __init__(self, cfg: GPTConfig):
         super().__init__()
-        self.ln1 = nn.LayerNorm(cfg.d_model)
-        self.ln2 = nn.LayerNorm(cfg.d_model)
+        self.ln1 = RMSNorm(cfg.d_model)
+        self.ln2 = RMSNorm(cfg.d_model)
         self.attn = CausalSelfAttention(cfg)
         self.mlp  = MLP(cfg)
     def forward(self, x):
@@ -219,7 +227,7 @@ class GPT(nn.Module):
         self.token_emb = nn.Embedding(cfg.vocab_size, cfg.d_model)
         self.drop      = nn.Dropout(cfg.dropout)
         self.blocks    = nn.ModuleList([Block(cfg) for _ in range(cfg.n_layer)])
-        self.ln_f      = nn.LayerNorm(cfg.d_model)
+        self.ln_f      = RMSNorm(cfg.d_model)
         self.head      = nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
 
         self.apply(self._init_weights)
