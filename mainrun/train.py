@@ -33,12 +33,12 @@ _MODE_EPOCHS = {"smoke": 1, "validate": 7, "full": 7}
 class Hyperparameters:
     block_size: int = 256
     batch_size: int = 32
-    vocab_size: int = 16_000
-    n_layer: int = 12
+    vocab_size: int = 8_000
+    n_layer: int = 10
     n_head: int = 8
     d_model: int = 640
     dropout: float = 0.1
-    lr: float = 2e-4
+    lr: float = 3e-4
     weight_decay: float = 0.1
     evals_per_epoch: int = 3
     
