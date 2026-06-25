@@ -37,7 +37,7 @@ class Hyperparameters:
     n_layer: int = 10
     n_head: int = 8
     d_model: int = 640
-    dropout: float = 0.1
+    dropout: float = 0.0
     lr: float = 3e-4
     weight_decay: float = 0.1
     evals_per_epoch: int = 3
@@ -322,7 +322,7 @@ def main():
         opt, start_factor=1e-8, end_factor=1.0, total_iters=warmup_steps
     )
     cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        opt, T_max=max_steps - warmup_steps, eta_min=0.0
+        opt, T_max=max_steps - warmup_steps, eta_min=args.lr * 0.05
     )
     scheduler = torch.optim.lr_scheduler.SequentialLR(
         opt, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[warmup_steps]
