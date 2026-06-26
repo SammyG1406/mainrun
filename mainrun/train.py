@@ -6,10 +6,90 @@ import torch
 from torch.nn import functional as F
 from tokenizers import Tokenizer
 from tqdm import tqdm
+import structlog
 
-from config import Hyperparameters, GPTConfig, MODE
-from model import GPT
-from data import get_titles, get_batch, iter_full_split, train_tokenizer, BPETokenizer
+# ---------------------------------------------------------------------------
+# Three-tier testing harness.
+#
+# Controlled entirely via the MODE env var. This ONLY affects how much data
+# is used for fast local iteration — it never changes epochs, seed, val_frac,
+# or anything else restricted by the assessment rules when MODE=full (the
+# default), which is exactly what `task train` runs for real/scored results.
+#   MODE=smoke    -> ~5000 titles,  1 epoch   (seconds)  "does it crash?"
+#   MODE=validate -> ~25k titles,  7 epochs  (minutes)  "is this idea promising?"
+#   MODE=full     -> 100k titles,  7 epochs  (the real run, default, unchanged)
+# ---------------------------------------------------------------------------
+MODE = os.environ.get("MODE", "full").lower()
+assert MODE in ("smoke", "validate", "full"), f"Unknown MODE: {MODE}"
+
+_MODE_NUM_TITLES = {"smoke": 5_000, "validate": 25_000, "full": 100_000}
+_MODE_EPOCHS = {"smoke": 1, "validate": 7, "full": 7}
+
+@dataclass
+class Hyperparameters:
+    block_size: int = 128
+    batch_size: int = 64
+    vocab_size: int = 16_000
+    n_layer: int = 10
+    n_head: int = 8
+    d_model: int = 640
+    dropout: float = 0.1
+    lr: float = 3e-4
+    weight_decay: float = 0.1
+    evals_per_epoch: int = 3
+    
+    epochs: int = _MODE_EPOCHS[MODE]
+    seed: int = 1337
+    num_titles: int = _MODE_NUM_TITLES[MODE]
+    val_frac: float = 0.10
+    log_file: str = (
+        f"./logs/mainrun_{MODE}_{time.strftime('%Y-%m-%dT%H-%M-%S')}.log"
+        if MODE != "full" else "./logs/mainrun.log"
+    )
+
+def configure_logging(log_file: str):
+    Path(log_file).parent.mkdir(parents=True, exist_ok=True)
+    
+    file_handler = open(log_file, 'w')
+    
+    structlog.configure(
+        processors=[
+            structlog.stdlib.filter_by_level,
+            structlog.stdlib.add_logger_name,
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.PositionalArgumentsFormatter(),
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.format_exc_info,
+            structlog.processors.UnicodeDecoder(),
+            structlog.processors.JSONRenderer()
+        ],
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=True,
+    )
+    
+    class DualLogger:
+        def __init__(self, file_handler):
+            self.file_handler = file_handler
+            self.logger = structlog.get_logger()
+            
+        def log(self, event, **kwargs):
+            log_entry = json.dumps({"event": event, "timestamp": time.time(), **kwargs})
+            self.file_handler.write(log_entry + "\n")
+            self.file_handler.flush()
+            
+            if kwargs.get("prnt", True):
+                if "step" in kwargs and "max_steps" in kwargs:
+                    tqdm.write(f"[{kwargs.get('step'):>5}/{kwargs.get('max_steps')}] {event}: loss={kwargs.get('loss', 'N/A'):.6f} time={kwargs.get('elapsed_time', 0):.2f}s")
+                else:
+                    parts = [f"{k}={v}" for k, v in kwargs.items() if k not in ["prnt", "timestamp"]]
+                    if parts:
+                        tqdm.write(f"{event}: {', '.join(parts)}")
+                    else:
+                        tqdm.write(event)
+    
+    return DualLogger(file_handler)
 
 logger = None
 
