@@ -1,3 +1,6 @@
+# ══ config.py ════════════════════════════════════════════════════════════════
+# Hyperparameter and model configuration dataclasses shared across all modules.
+
 import os
 import time
 from dataclasses import dataclass
@@ -8,6 +11,9 @@ assert MODE in ("smoke", "validate", "full"), f"Unknown MODE: {MODE}"
 _MODE_NUM_TITLES = {"smoke": 5_000, "validate": 25_000, "full": 100_000}
 _MODE_EPOCHS     = {"smoke": 1,     "validate": 7,      "full": 7}
 
+
+# ── Hyperparameters ───────────────────────────────────────────────────────────
+# Training run settings; mode-dependent fields resolve at import time from MODE.
 @dataclass
 class Hyperparameters:
     block_size:      int   = 256
@@ -30,6 +36,9 @@ class Hyperparameters:
         if MODE != "full" else "./logs/mainrun.log"
     )
 
+
+# ── GPTConfig ─────────────────────────────────────────────────────────────────
+# Immutable architecture spec passed into GPT and its sub-modules at construction.
 @dataclass
 class GPTConfig:
     vocab_size: int
