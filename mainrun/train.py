@@ -33,13 +33,14 @@ _MODE_EPOCHS = {"smoke": 1, "validate": 7, "full": 7}
 class Hyperparameters:
     block_size: int = 256
     batch_size: int = 32
-    vocab_size: int = 8_000
+    vocab_size: int = 16_000
     n_layer: int = 10
     n_head: int = 8
     d_model: int = 640
     dropout: float = 0.1
     lr: float = 3e-4
     weight_decay: float = 0.1
+    accum_steps: int = 4
     evals_per_epoch: int = 3
     
     epochs: int = _MODE_EPOCHS[MODE]
@@ -296,12 +297,14 @@ def main():
     val_ids = torch.tensor(tok.encode(val_text), dtype=torch.long)
     
     batches = len(train_ids) // (args.block_size * args.batch_size)
-    max_steps = args.epochs * batches
-    eval_interval = batches // args.evals_per_epoch
+    opt_steps_per_epoch = batches // args.accum_steps
+    max_steps = args.epochs * opt_steps_per_epoch
+    eval_interval = max(1, opt_steps_per_epoch // args.evals_per_epoch)
     logger.log("dataset_info",
                titles_count=len(train_titles),
                epochs=args.epochs,
                batches_per_epoch=batches,
+               opt_steps_per_epoch=opt_steps_per_epoch,
                tokens_per_epoch=len(train_ids),
                vocab_size=tok.vocab_size)
 
@@ -325,7 +328,7 @@ def main():
         {"params": no_decay_params, "weight_decay": 0.0},
     ], lr=args.lr)
 
-    warmup_steps = max(100, int(0.05 * max_steps))
+    warmup_steps = max(10, int(0.05 * max_steps))
     warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
         opt, start_factor=1e-8, end_factor=1.0, total_iters=warmup_steps
     )
@@ -351,32 +354,39 @@ def main():
     ptr = 0
     step = 0
     t0 = time.time()
+    micro_batches_per_epoch = opt_steps_per_epoch * args.accum_steps
     for epoch in range(1, args.epochs + 1):
-        for _ in tqdm(range(1, batches + 1), desc=f"Epoch {epoch}/{args.epochs}"):
-            step += 1
+        opt.zero_grad(set_to_none=True)
+        accum_loss = 0.0
+        for micro in tqdm(range(1, micro_batches_per_epoch + 1), desc=f"Epoch {epoch}/{args.epochs}"):
             xb, yb, ptr = get_batch(train_ids, ptr, args.block_size, args.batch_size, device)
             _, loss = model(xb, yb)
-            opt.zero_grad(set_to_none=True)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            opt.step()
-            scheduler.step()
+            (loss / args.accum_steps).backward()
+            accum_loss += loss.item() / args.accum_steps
 
-            elapsed = time.time() - t0
-            logger.log("training_step",
-                      step=step,
-                      max_steps=max_steps,
-                      loss=loss.item(),
-                      elapsed_time=elapsed,
-                      prnt=False)
+            if micro % args.accum_steps == 0:
+                step += 1
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                opt.step()
+                scheduler.step()
+                opt.zero_grad(set_to_none=True)
 
-            if step == 1 or step % eval_interval == 0 or step == max_steps:
-                val_loss = evaluate()
-                logger.log("validation_step",
+                elapsed = time.time() - t0
+                logger.log("training_step",
                           step=step,
                           max_steps=max_steps,
-                          loss=val_loss,
-                          elapsed_time=elapsed)
+                          loss=accum_loss,
+                          elapsed_time=elapsed,
+                          prnt=False)
+                accum_loss = 0.0
+
+                if step == 1 or step % eval_interval == 0 or step == max_steps:
+                    val_loss = evaluate()
+                    logger.log("validation_step",
+                              step=step,
+                              max_steps=max_steps,
+                              loss=val_loss,
+                              elapsed_time=elapsed)
 
 if __name__ == "__main__":
     try:
