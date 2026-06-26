@@ -279,7 +279,7 @@ def main():
     # Cache the tokenizer per-tier (vocab depends on num_titles, so MODE=smoke,
     # validate, and full each get their own cached tokenizer file, and the real
     # MODE=full run is always retrained fresh against the full 100k titles).
-    tok_cache_path = Path(f"./data/tokenizer_{MODE}.json")
+    tok_cache_path = Path(f"./data/tokenizer_{MODE}.json") if args.vocab_size == 16_000 else Path(f"./data/tokenizer_{MODE}_{args.vocab_size}.json")
     if tok_cache_path.exists():
         tok = BPETokenizer(Tokenizer.from_file(str(tok_cache_path)))
         logger.log("tokenizer_loaded_from_cache", path=str(tok_cache_path))
