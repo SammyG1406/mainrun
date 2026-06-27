@@ -1,3 +1,7 @@
+"""
+    Downloads and caches the Hacker News posts dataset from 
+    HuggingFace.
+"""
 from datasets import load_dataset
 import sys
 

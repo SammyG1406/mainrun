@@ -1,12 +1,12 @@
 """
-Compare two training runs side by side.
+    Compare two training runs side by side.
 
-Usage:
-    python plot_compare.py <log_a> <log_b> [--labels "Label A" "Label B"] [--out output.png]
+    Usage:
+        python plot_compare.py <log_a> <log_b> [--labels "Label A" "Label B"] [--out output.png]
 
-Examples:
-    python plot_compare.py logs/baseline.log logs/mainrun_validate_2026-06-22T14-30-00.log
-    python plot_compare.py logs/baseline.log logs/mainrun_validate_base.log --labels Baseline Optimised
+    Examples:
+        python plot_compare.py logs/baseline.log logs/mainrun_validate_2026-06-22T14-30-00.log
+        python plot_compare.py logs/baseline.log logs/mainrun_validate_base.log --labels Baseline Optimised
 """
 import argparse
 import json
@@ -15,6 +15,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 
+# Parses a JSON log file and returns train/val steps and losses normalised to epoch fractions.
 def parse_log(path: str):
     train_steps, train_losses = [], []
     val_steps, val_losses = [], []
@@ -34,12 +35,13 @@ def parse_log(path: str):
                 val_steps.append(e["step"])
                 val_losses.append(e["loss"])
                 max_steps = e.get("max_steps", max_steps)
-    # Normalise to epoch so runs with different dataset sizes are comparable
+    ## Normalise to epoch so runs with different dataset sizes are comparable
     epochs_x_train = [s / max_steps * 7 for s in train_steps] if max_steps else train_steps
     epochs_x_val   = [s / max_steps * 7 for s in val_steps]   if max_steps else val_steps
     return epochs_x_train, train_losses, epochs_x_val, val_losses
 
 
+# Plots training and validation loss curves for two runs side by side and saves to file.
 def plot(log_a, log_b, label_a, label_b, out):
     ta, la, va_x, va_y = parse_log(log_a)
     tb, lb, vb_x, vb_y = parse_log(log_b)
@@ -50,7 +52,7 @@ def plot(log_a, log_b, label_a, label_b, out):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
     fig.suptitle(f"{label_a}  vs  {label_b}", fontsize=13, fontweight="bold")
 
-    # --- Training loss ---
+    ## Training loss
     ax1.plot(ta, la, alpha=0.35, linewidth=0.7, color="steelblue",  label=label_a)
     ax1.plot(tb, lb, alpha=0.35, linewidth=0.7, color="darkorange", label=label_b)
     ax1.set_title("Training Loss")
@@ -59,7 +61,7 @@ def plot(log_a, log_b, label_a, label_b, out):
     ax1.legend(fontsize=9)
     ax1.grid(True, alpha=0.3)
 
-    # --- Validation loss ---
+    ## Validation loss
     ax2.plot(va_x, va_y, "o-", linewidth=1.8, markersize=4, color="steelblue",
              label=f"{label_a}  (final {final_a})")
     ax2.plot(vb_x, vb_y, "o-", linewidth=1.8, markersize=4, color="darkorange",

@@ -1,4 +1,7 @@
-# Training entry point: data preparation, model construction, and training loop.
+"""
+    Training entry point: data preparation, model construction,
+    and training loop.
+"""
 
 import utils  # side-effect: devcontainer check
 import random, time, os
@@ -15,7 +18,7 @@ from data import get_titles, get_batch, iter_full_split, train_tokenizer, BPETok
 
 logger = None
 
-## Orchestrates the full run: seeds, data loading, model build, optimiser, training loop.
+# Orchestrates the full run: seeds, data loading, model build, optimiser, training loop.
 def main():
     args = Hyperparameters()
     torch.manual_seed(args.seed)
@@ -35,9 +38,9 @@ def main():
 
     eos_token = "<eos>"
 
-    # Cache the tokenizer per-tier (vocab depends on num_titles, so MODE=smoke,
-    # validate, and full each get their own cached tokenizer file, and the real
-    # MODE=full run is always retrained fresh against the full 100k titles).
+    ## Cache the tokenizer per-tier (vocab depends on num_titles, so MODE=smoke,
+    ## validate, and full each get their own cached tokenizer file, and the real
+    ## MODE=full run is always retrained fresh against the full 100k titles).
     tok_cache_path = Path(f"./data/tokenizer_{MODE}.json")
     if tok_cache_path.exists():
         tok = BPETokenizer(Tokenizer.from_file(str(tok_cache_path)))
@@ -95,7 +98,7 @@ def main():
         opt, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[warmup_steps]
     )
 
-    ### Runs the model over the full validation split and returns summed loss per character.
+    ## Runs the model over the full validation split and returns summed loss per character.
     def evaluate():
         model.eval()
         losses = 0.0

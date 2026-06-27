@@ -1,4 +1,7 @@
-# Devcontainer environment guard and structured JSON logging helper.
+"""
+    Devcontainer environment guard and structured JSON
+    logging helper.
+"""
 
 import os
 import sys
@@ -8,7 +11,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 
-## Exits with an instructions message if the required devcontainer marker is absent.
+# Exits with an instructions message if the required devcontainer marker is absent.
 def _check_devcontainer():
     if not all([
         Path("/root/.mainrun").exists()
@@ -35,18 +38,18 @@ Setup Instructions:
 _check_devcontainer()
 
 
-## Opens log_file for writing and returns a DualLogger that mirrors output to stdout.
+# Opens log_file for writing and returns a DualLogger that mirrors output to stdout.
 def configure_logging(log_file: str):
     Path(log_file).parent.mkdir(parents=True, exist_ok=True)
     file_handler = open(log_file, 'w')
 
-    ### Writes each event as a JSON line to file and as formatted text via tqdm.
+    ## Writes each event as a JSON line to file and as formatted text via tqdm.
     class DualLogger:
-        #### Stores the open file handle used by all subsequent log calls.
+        ### Stores the open file handle used by all subsequent log calls.
         def __init__(self, file_handler):
             self.file_handler = file_handler
 
-        #### Serialises the event to a JSON log line and prints if prnt=True.
+        ### Serialises the event to a JSON log line and prints if prnt=True.
         def log(self, event, **kwargs):
             log_entry = json.dumps({"event": event, "timestamp": time.time(), **kwargs})
             self.file_handler.write(log_entry + "\n")
