@@ -1,4 +1,3 @@
-# ══ train.py ══════════════════════════════════════════════════════════════════
 # Training entry point: data preparation, model construction, and training loop.
 
 import utils  # side-effect: devcontainer check
@@ -16,8 +15,8 @@ from data import get_titles, get_batch, iter_full_split, train_tokenizer, BPETok
 
 logger = None
 
+## Orchestrates the full run: seeds, data loading, model build, optimiser, training loop.
 def main():
-    # Orchestrates the full run: seeds, data loading, model build, optimiser, training loop.
     args = Hyperparameters()
     torch.manual_seed(args.seed)
     random.seed(args.seed)
@@ -96,8 +95,8 @@ def main():
         opt, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[warmup_steps]
     )
 
+    ### Runs the model over the full validation split and returns summed loss per character.
     def evaluate():
-        # Runs the model over the full validation split and returns summed loss per character.
         model.eval()
         losses = 0.0
         with torch.no_grad():
