@@ -37,7 +37,7 @@ class CausalSelfAttention(nn.Module):
         self.resid_drop = nn.Dropout(cfg.dropout)
 
         half  = self.head_dim // 2
-        freqs = 1.0 / (500.0 ** (torch.arange(0, half).float() / half))
+        freqs = 1.0 / (10000.0 ** (torch.arange(0, half).float() / half))
         pos   = torch.arange(cfg.block_size)
         freqs = torch.outer(pos, freqs)
         self.register_buffer('rope_cos', freqs.cos().unsqueeze(0).unsqueeze(0))
